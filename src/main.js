@@ -97,10 +97,7 @@ const interacciones = new Interacciones( {
 	alCambiarForma: ( nombre ) => avisar( 'Forma: ' + nombre )
 } );
 
-// Botones HTML durante la sesión (se ven en el emulador de PC y en móviles;
-// en el Quest 3 se usan los botones 3D del panel flotante).
-document.getElementById( 'btn-forma' ).addEventListener( 'click', () => interacciones.cambiarForma() );
-document.getElementById( 'btn-borrar' ).addEventListener( 'click', () => interacciones.borrarTodo() );
+// Botón HTML "Salir" durante la sesión (solo se ve en el emulador de PC y en móviles).
 document.getElementById( 'btn-salir' ).addEventListener( 'click', () => {
 
 	const sesion = renderer.xr.getSession();

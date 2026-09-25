@@ -2,7 +2,6 @@
 // con controles o con las manos.
 import * as THREE from 'three';
 import { FORMAS, COLORES, crearObjeto, crearFantasma, resaltar, liberarObjeto } from './objetos.js';
-import { Panel } from './panel.js';
 
 const DISTANCIA_SIN_SUPERFICIE = 0.4; // si no hay hit-test, se coloca a 40 cm del control
 const MARGEN_AGARRE = 0.06; // qué tan cerca hay que estar para agarrar un objeto
@@ -11,6 +10,12 @@ const ALCANCE_RAYO = 5;
 // Botones estándar de los controles del Quest (mapeo "xr-standard").
 const BOTON_A_X = 4;
 const BOTON_B_Y = 5;
+
+// Gesto con las manos: juntar el pulgar con el dedo MEDIO.
+// Toque rápido = cambiar forma. Mantener = borrar todo.
+const DISTANCIA_JUNTOS = 0.015; // 1,5 cm: dedos juntos
+const DISTANCIA_SEPARADOS = 0.03; // 3 cm: dedos separados otra vez
+const TIEMPO_BORRAR = 1500; // milisegundos que hay que mantener el gesto para borrar
 
 function crearReticula() {
 
@@ -21,6 +26,33 @@ function crearReticula() {
 	reticula.matrixAutoUpdate = false;
 	reticula.visible = false;
 	return reticula;
+
+}
+
+// Arco que se va llenando mientras se mantiene el gesto de borrar.
+function crearIndicador() {
+
+	const indicador = new THREE.Mesh(
+		new THREE.RingGeometry( 0.018, 0.024, 32, 1, 0, 0.001 ),
+		new THREE.MeshBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false } )
+	);
+	indicador.renderOrder = 1;
+	indicador.visible = false;
+	indicador.userData.progreso = - 1;
+	return indicador;
+
+}
+
+function actualizarIndicador( indicador, progreso ) {
+
+	// Solo se rehace el arco cuando el progreso cambia de forma visible.
+	const paso = Math.round( progreso * 40 ) / 40;
+	if ( paso === indicador.userData.progreso ) return;
+	indicador.userData.progreso = paso;
+
+	indicador.geometry.dispose();
+	indicador.geometry = new THREE.RingGeometry( 0.018, 0.024, 32, 1, Math.PI / 2, - Math.max( paso, 0.001 ) * Math.PI * 2 );
+	indicador.material.color.setHex( paso >= 1 ? 0xd62828 : 0xffffff );
 
 }
 
@@ -49,7 +81,6 @@ export class Interacciones {
 		this.indiceColor = 0;
 
 		this.fuenteHitVisor = null;
-		this.cuadros = 0;
 
 		this.raycaster = new THREE.Raycaster();
 		this.raycaster.far = ALCANCE_RAYO;
@@ -61,13 +92,6 @@ export class Interacciones {
 		// Retícula que sigue la mirada (se usa solo si no hay controles ni manos).
 		this.reticulaVisor = crearReticula();
 		escena.add( this.reticulaVisor );
-
-		// Panel con botones 3D.
-		this.panel = new Panel( {
-			cambiarForma: () => this.cambiarForma(),
-			borrarTodo: () => this.borrarTodo()
-		} );
-		escena.add( this.panel.grupo );
 
 		// Dos controles o dos manos.
 		this.controles = [];
@@ -90,6 +114,9 @@ export class Interacciones {
 		const reticula = crearReticula();
 		this.escena.add( reticula );
 
+		const indicador = crearIndicador();
+		this.escena.add( indicador );
+
 		control.userData = {
 			mano,
 			linea,
@@ -99,7 +126,8 @@ export class Interacciones {
 			agarrado: null,
 			agarradoCon: null,
 			botonesAntes: [],
-			dedoTocando: false
+			indicador,
+			gesto: { activo: false, inicio: 0, borrado: false }
 		};
 
 		control.addEventListener( 'connected', ( evento ) => this._alConectar( control, evento.data ) );
@@ -116,8 +144,6 @@ export class Interacciones {
 	// ---------- Sesión ----------
 
 	iniciar( sesion ) {
-
-		this.cuadros = 0;
 
 		// Hit-test desde la cabeza (opcional: si no existe, la app sigue funcionando).
 		if ( typeof sesion.requestHitTestSource === 'function' ) {
@@ -136,7 +162,6 @@ export class Interacciones {
 		if ( this.fuenteHitVisor ) this.fuenteHitVisor.cancel();
 		this.fuenteHitVisor = null;
 		this.reticulaVisor.visible = false;
-		this.panel.grupo.visible = false;
 
 		for ( const control of this.controles ) this._alDesconectar( control );
 
@@ -174,7 +199,8 @@ export class Interacciones {
 		datos.fuenteHit = null;
 		datos.fuenteEntrada = null;
 		datos.reticula.visible = false;
-		datos.dedoTocando = false;
+		datos.gesto.activo = false;
+		datos.indicador.visible = false;
 
 	}
 
@@ -190,17 +216,7 @@ export class Interacciones {
 	// Gatillo (controles) o pellizco (manos).
 	_alInicioSeleccion( control ) {
 
-		// 1) ¿Apunta a un botón del panel?
-		this.raycaster.setFromXRController( control );
-		const boton = this.panel.botonEnRayo( this.raycaster );
-		if ( boton ) {
-
-			this.panel.pulsar( boton );
-			return;
-
-		}
-
-		// 2) Con la mano: pellizcar cerca de un objeto lo agarra.
+		// Con la mano: pellizcar cerca de un objeto lo agarra.
 		if ( this._esMano( control ) ) {
 
 			const objeto = this._objetoCercano( this._puntoPellizco( control ) );
@@ -213,7 +229,7 @@ export class Interacciones {
 
 		}
 
-		// 3) Si no, coloca un objeto nuevo.
+		// Si no, coloca un objeto nuevo.
 		this._colocar( control );
 
 	}
@@ -437,20 +453,78 @@ export class Interacciones {
 
 	}
 
-	// Tocar un botón del panel con la punta del dedo índice.
-	_leerDedo( control ) {
+	// Gesto de la mano: pulgar + dedo medio.
+	_leerGestoMano( control ) {
 
 		const datos = control.userData;
+		const gesto = datos.gesto;
 		if ( ! this._esMano( control ) ) return;
 
-		const punta = datos.mano.joints[ 'index-finger-tip' ];
-		if ( ! punta || ! punta.visible ) return;
+		const articulaciones = datos.mano.joints;
+		const pulgar = articulaciones[ 'thumb-tip' ];
+		const medio = articulaciones[ 'middle-finger-tip' ];
+		const indice = articulaciones[ 'index-finger-tip' ];
 
-		punta.getWorldPosition( this._a );
-		const boton = this.panel.botonEnPunto( this._a );
+		if ( ! pulgar || ! medio || ! pulgar.visible || ! medio.visible ) {
 
-		if ( boton && ! datos.dedoTocando ) this.panel.pulsar( boton );
-		datos.dedoTocando = !! boton;
+			gesto.activo = false;
+			datos.indicador.visible = false;
+			return;
+
+		}
+
+		pulgar.getWorldPosition( this._a );
+		medio.getWorldPosition( this._b );
+		const distanciaMedio = this._a.distanceTo( this._b );
+		const ahora = performance.now();
+
+		if ( ! gesto.activo ) {
+
+			// Para no confundirlo con el pellizco normal, el índice debe estar separado.
+			let indiceSeparado = true;
+			if ( indice && indice.visible ) {
+
+				indice.getWorldPosition( this._b );
+				indiceSeparado = this._a.distanceTo( this._b ) > DISTANCIA_SEPARADOS;
+
+			}
+
+			if ( distanciaMedio < DISTANCIA_JUNTOS && indiceSeparado && ! datos.agarrado ) {
+
+				gesto.activo = true;
+				gesto.inicio = ahora;
+				gesto.borrado = false;
+
+			}
+
+		} else if ( distanciaMedio > DISTANCIA_SEPARADOS ) {
+
+			// Se soltó el gesto: si fue rápido, cambia la forma.
+			gesto.activo = false;
+			datos.indicador.visible = false;
+			if ( ! gesto.borrado ) this.cambiarForma();
+			return;
+
+		}
+
+		if ( ! gesto.activo ) return;
+
+		// Mientras se mantiene, el arco se llena; al completarse se borra todo.
+		const progreso = Math.min( ( ahora - gesto.inicio ) / TIEMPO_BORRAR, 1 );
+
+		if ( progreso >= 1 && ! gesto.borrado ) {
+
+			gesto.borrado = true;
+			this.borrarTodo();
+
+		}
+
+		const indicador = datos.indicador;
+		indicador.position.copy( this._a );
+		this.camara.getWorldPosition( this._b );
+		indicador.lookAt( this._b );
+		actualizarIndicador( indicador, progreso );
+		indicador.visible = true;
 
 	}
 
@@ -460,11 +534,6 @@ export class Interacciones {
 		if ( ! frame ) return;
 
 		const espacio = this.renderer.xr.getReferenceSpace();
-		this.cuadros ++;
-
-		// Esperamos unos cuadros a tener la posición real de la cabeza.
-		if ( this.cuadros === 10 ) this.panel.colocarFrente( this.camara );
-		this.panel.actualizar( this.camara );
 
 		let hayControles = false;
 
@@ -493,7 +562,7 @@ export class Interacciones {
 			}
 
 			this._leerBotones( control );
-			this._leerDedo( control );
+			this._leerGestoMano( control );
 
 		}
 

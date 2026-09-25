@@ -20,18 +20,19 @@ tomarlos y moverlos con los controles o con las manos.
 | Colocar un objeto en el anillo | Gatillo | Pellizcar (índice + pulgar) |
 | Tomar y mover un objeto | Mantener el botón de agarre (grip) | Pellizcar cerca del objeto y mover la mano |
 | Soltar | Soltar el agarre | Separar los dedos |
-| Cambiar de forma | Botón **A** o **X**, o el panel flotante | Tocar "Cambiar forma" en el panel |
-| Borrar todo | Botón **B** o **Y**, o el panel flotante | Tocar "Borrar todo" en el panel |
+| Cambiar de forma | Botón **A** o **X** | Juntar **pulgar + dedo medio** y soltar |
+| Borrar todo | Botón **B** o **Y** | Mantener **pulgar + dedo medio** juntos hasta que el círculo se llene (1,5 s) |
 
 Cada objeto nuevo sale de otro color. El objeto semitransparente sobre el anillo muestra lo próximo que vas a colocar.
-El panel flotante aparece frente a ti y te sigue si te alejas; puedes tocarlo con el dedo o apuntarlo y pulsar el gatillo.
+Con las manos, el gesto del dedo medio no coloca objetos (eso lo hace el pellizco con el índice).
+Mientras mantienes el gesto aparece un círculo en la punta del pulgar que se va llenando; al completarse se borra todo.
 
 ## Cómo probarla en la PC
 
 1. Instala en Chrome la extensión **Immersive Web Emulator** (de Meta).
 2. Abre la página (la de GitHub Pages o tu servidor local), abre las herramientas de desarrollador (F12)
    y elige la pestaña **WebXR**; selecciona el dispositivo "Meta Quest 3".
-3. Pulsa "Entrar en realidad mixta". En el emulador también aparecen botones en pantalla (Cambiar forma, Borrar todo, Salir).
+3. Pulsa "Entrar en realidad mixta". Usa los botones A/B/X/Y del control simulado; en pantalla aparece un botón "Salir".
 
 ### Servidor local
 
@@ -52,7 +53,6 @@ Three.js (versión 0.170.0) se carga desde jsDelivr con un `importmap`.
 - `src/main.js` – escena, luces, sombras y sesión WebXR (`immersive-ar`)
 - `src/interacciones.js` – hit-test (anillo), colocar, agarrar y mover
 - `src/objetos.js` – formas y colores
-- `src/panel.js` – panel flotante con botones 3D
 
 Funciones de WebXR que se piden como **opcionales** (si el visor no tiene alguna, la app sigue funcionando):
 `hit-test`, `local-floor`, `hand-tracking`, `anchors`, `plane-detection` y `dom-overlay`.
