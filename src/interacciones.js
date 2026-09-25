@@ -17,6 +17,12 @@ const DISTANCIA_JUNTOS = 0.015; // 1,5 cm: dedos juntos
 const DISTANCIA_SEPARADOS = 0.03; // 3 cm: dedos separados otra vez
 const TIEMPO_BORRAR = 1500; // milisegundos que hay que mantener el gesto para borrar
 
+// Cambiar el tamaño de un objeto.
+const ESCALA_MINIMA = 0.25;
+const ESCALA_MAXIMA = 6;
+const VELOCIDAD_JOYSTICK = 1.2; // cuánto crece por segundo con el joystick a fondo
+const EJE_JOYSTICK_Y = 3; // eje vertical del joystick (mapeo "xr-standard")
+
 function crearReticula() {
 
 	const reticula = new THREE.Mesh(
@@ -86,6 +92,8 @@ export class Interacciones {
 		this.raycaster.far = ALCANCE_RAYO;
 		this._a = new THREE.Vector3();
 		this._b = new THREE.Vector3();
+		this._c = new THREE.Vector3();
+		this.tiempoAnterior = 0;
 		this._normal = new THREE.Vector3();
 		this._escala = new THREE.Vector3();
 
@@ -125,6 +133,7 @@ export class Interacciones {
 			fuenteHit: null,
 			agarrado: null,
 			agarradoCon: null,
+			escalando: null,
 			botonesAntes: [],
 			indicador,
 			gesto: { activo: false, inicio: 0, borrado: false }
@@ -199,6 +208,7 @@ export class Interacciones {
 		datos.fuenteHit = null;
 		datos.fuenteEntrada = null;
 		datos.reticula.visible = false;
+		datos.escalando = null;
 		datos.gesto.activo = false;
 		datos.indicador.visible = false;
 
@@ -222,7 +232,7 @@ export class Interacciones {
 			const objeto = this._objetoCercano( this._puntoPellizco( control ) );
 			if ( objeto ) {
 
-				this._agarrar( control, objeto, 'select' );
+				this._tomar( control, objeto, 'select' );
 				return;
 
 			}
@@ -249,13 +259,25 @@ export class Interacciones {
 
 		}
 
-		if ( objeto ) this._agarrar( control, objeto, 'squeeze' );
+		if ( objeto ) this._tomar( control, objeto, 'squeeze' );
 
 	}
 
 	_alFinSeleccion( control, tipo ) {
 
-		if ( control.userData.agarradoCon === tipo ) this._soltar( control );
+		const datos = control.userData;
+		if ( datos.agarradoCon !== tipo ) return;
+
+		if ( datos.escalando ) {
+
+			datos.escalando = null;
+			datos.agarradoCon = null;
+
+		} else {
+
+			this._soltar( control );
+
+		}
 
 	}
 
@@ -295,12 +317,37 @@ export class Interacciones {
 
 	}
 
+	// Si el objeto ya lo sostiene la otra mano/control, se empieza a cambiar su tamaño;
+	// si no, se agarra normalmente.
+	_tomar( control, objeto, tipo ) {
+
+		const otro = this.controles.find( ( c ) => c !== control && c.userData.agarrado === objeto );
+
+		if ( otro ) {
+
+			control.userData.escalando = {
+				objeto,
+				otro,
+				escalaInicial: objeto.scale.x,
+				distanciaInicial: Math.max( this._puntoAgarre( control ).distanceTo( this._puntoAgarre( otro, this._b ) ), 0.01 )
+			};
+			control.userData.agarradoCon = tipo;
+
+		} else {
+
+			this._agarrar( control, objeto, tipo );
+
+		}
+
+	}
+
 	_agarrar( control, objeto, tipo ) {
 
 		// Si otro control ya lo tenía, se lo quitamos.
 		for ( const otro of this.controles ) {
 
 			if ( otro.userData.agarrado === objeto ) this._soltar( otro );
+			if ( otro.userData.escalando && otro.userData.escalando.objeto === objeto ) otro.userData.escalando = null;
 
 		}
 
@@ -356,7 +403,7 @@ export class Interacciones {
 	// ---------- Ayudantes ----------
 
 	// Punto medio entre la punta del pulgar y del índice.
-	_puntoPellizco( control ) {
+	_puntoPellizco( control, destino = this._a ) {
 
 		const articulaciones = control.userData.mano.joints;
 		const indice = articulaciones && articulaciones[ 'index-finger-tip' ];
@@ -364,13 +411,63 @@ export class Interacciones {
 
 		if ( indice && pulgar && indice.visible && pulgar.visible ) {
 
-			indice.getWorldPosition( this._a );
-			pulgar.getWorldPosition( this._b );
-			return this._a.add( this._b ).multiplyScalar( 0.5 );
+			indice.getWorldPosition( destino );
+			pulgar.getWorldPosition( this._c );
+			return destino.add( this._c ).multiplyScalar( 0.5 );
 
 		}
 
-		return control.getWorldPosition( this._a );
+		return control.getWorldPosition( destino );
+
+	}
+
+	// Punto con el que se sostiene: el pellizco (manos) o el control.
+	_puntoAgarre( control, destino = this._a ) {
+
+		if ( this._esMano( control ) ) return this._puntoPellizco( control, destino );
+		return control.getWorldPosition( destino );
+
+	}
+
+	_aplicarEscala( objeto, escala ) {
+
+		objeto.scale.setScalar( THREE.MathUtils.clamp( escala, ESCALA_MINIMA, ESCALA_MAXIMA ) );
+
+	}
+
+	// Dos manos (o dos controles) sobre el mismo objeto: separarlas agranda, juntarlas achica.
+	_actualizarEscalaDosManos( control ) {
+
+		const escalando = control.userData.escalando;
+		if ( ! escalando ) return;
+
+		// Si la otra mano soltó el objeto, se termina el cambio de tamaño.
+		if ( escalando.otro.userData.agarrado !== escalando.objeto ) {
+
+			control.userData.escalando = null;
+			control.userData.agarradoCon = null;
+			return;
+
+		}
+
+		const distancia = this._puntoAgarre( control ).distanceTo( this._puntoAgarre( escalando.otro, this._b ) );
+		this._aplicarEscala( escalando.objeto, escalando.escalaInicial * distancia / escalando.distanciaInicial );
+
+	}
+
+	// Joystick arriba/abajo mientras se sostiene un objeto con el control.
+	_leerJoystick( control, segundos ) {
+
+		const datos = control.userData;
+		const gamepad = datos.fuenteEntrada && datos.fuenteEntrada.gamepad;
+		if ( ! datos.agarrado || ! gamepad || this._esMano( control ) ) return;
+
+		const y = gamepad.axes[ EJE_JOYSTICK_Y ] || 0;
+		if ( Math.abs( y ) < 0.2 ) return; // zona muerta
+
+		// Arriba (valor negativo) agranda; abajo achica.
+		const objeto = datos.agarrado;
+		this._aplicarEscala( objeto, objeto.scale.x * Math.exp( - y * VELOCIDAD_JOYSTICK * segundos ) );
 
 	}
 
@@ -383,7 +480,7 @@ export class Interacciones {
 
 			this._b.copy( objeto.geometry.boundingSphere.center );
 			objeto.localToWorld( this._b );
-			const distancia = this._b.distanceTo( punto ) - objeto.userData.radio;
+			const distancia = this._b.distanceTo( punto ) - objeto.userData.radio * objeto.scale.x;
 
 			if ( distancia < MARGEN_AGARRE && distancia < mejorDistancia ) {
 
@@ -489,7 +586,7 @@ export class Interacciones {
 
 			}
 
-			if ( distanciaMedio < DISTANCIA_JUNTOS && indiceSeparado && ! datos.agarrado ) {
+			if ( distanciaMedio < DISTANCIA_JUNTOS && indiceSeparado && ! datos.agarrado && ! datos.escalando ) {
 
 				gesto.activo = true;
 				gesto.inicio = ahora;
@@ -534,6 +631,9 @@ export class Interacciones {
 		if ( ! frame ) return;
 
 		const espacio = this.renderer.xr.getReferenceSpace();
+		const ahora = performance.now();
+		const segundos = this.tiempoAnterior ? Math.min( ( ahora - this.tiempoAnterior ) / 1000, 0.1 ) : 0;
+		this.tiempoAnterior = ahora;
 
 		let hayControles = false;
 
@@ -546,7 +646,7 @@ export class Interacciones {
 			this._actualizarHitTest( datos.fuenteHit, datos.reticula, frame, espacio );
 
 			// Mientras se sostiene un objeto no hace falta la retícula.
-			if ( datos.agarrado ) datos.reticula.visible = false;
+			if ( datos.agarrado || datos.escalando ) datos.reticula.visible = false;
 
 			// El rayo llega hasta la retícula (o mide 1 m).
 			if ( datos.reticula.visible ) {
@@ -562,6 +662,8 @@ export class Interacciones {
 			}
 
 			this._leerBotones( control );
+			this._leerJoystick( control, segundos );
+			this._actualizarEscalaDosManos( control );
 			this._leerGestoMano( control );
 
 		}

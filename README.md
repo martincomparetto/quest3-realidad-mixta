@@ -20,12 +20,14 @@ tomarlos y moverlos con los controles o con las manos.
 | Colocar un objeto en el anillo | Gatillo | Pellizcar (índice + pulgar) |
 | Tomar y mover un objeto | Mantener el botón de agarre (grip) | Pellizcar cerca del objeto y mover la mano |
 | Soltar | Soltar el agarre | Separar los dedos |
+| Agrandar / achicar | Mientras lo sostienes: **joystick** arriba (agranda) o abajo (achica). O agárralo con los dos controles y sepáralos/júntalos | Pellizca el objeto con una mano y luego con la otra; **separa** las manos para agrandar y **júntalas** para achicar |
 | Cambiar de forma | Botón **A** o **X** | Juntar **pulgar + dedo medio** y soltar |
 | Borrar todo | Botón **B** o **Y** | Mantener **pulgar + dedo medio** juntos hasta que el círculo se llene (1,5 s) |
 
 Cada objeto nuevo sale de otro color. El objeto semitransparente sobre el anillo muestra lo próximo que vas a colocar.
 Con las manos, el gesto del dedo medio no coloca objetos (eso lo hace el pellizco con el índice).
 Mientras mantienes el gesto aparece un círculo en la punta del pulgar que se va llenando; al completarse se borra todo.
+El tamaño de un objeto puede ir desde un cuarto hasta seis veces su tamaño original.
 
 ## Cómo probarla en la PC
 
