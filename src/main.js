@@ -124,7 +124,8 @@ renderer.xr.setSession = function ( sesion ) {
 
 	}
 
-	return setSessionOriginal( sesion );
+	// .call() es necesario: la función original usa "this" por dentro.
+	return setSessionOriginal.call( renderer.xr, sesion );
 
 };
 
